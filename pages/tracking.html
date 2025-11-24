@@ -281,6 +281,18 @@
                                                         value="12" style="width: 120px;">
                                                 </div>
 
+                                                <div style="margin-bottom: 20px;">
+                                                    <label style="display: block; margin-bottom: 8px;">
+                                                        Ignore new accounts in past x months
+                                                        <div style="font-size: 12px; color: #999; margin-top: 5px;">
+                                                            Exclude recently created accounts from bot detection (0-12
+                                                            months, 0 = include all)
+                                                        </div>
+                                                    </label>
+                                                    <input type="number" id="tvm-bot-months-from-now" min="0" max="12"
+                                                        value="0" style="width: 120px;">
+                                                </div>
+
                                                 <div style="display: flex; gap: 10px; align-items: center;">
                                                     <button id="tvm-reset-settings"
                                                         class="tvm-btn tvm-btn-secondary">Reset to Defaults</button>

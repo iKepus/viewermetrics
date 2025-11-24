@@ -21,6 +21,7 @@ window.SettingsUI = class SettingsUI {
             this.setChecked('tvm-clean-graph-zero-data', config.cleanGraphZeroData);
             this.setChecked('tvm-smooth-chart-lines', config.smoothChartLines);
             this.setValue('tvm-history-retention', config.historyRetentionHours);
+            this.setValue('tvm-bot-months-from-now', config.botDateRangeMonthsFromNow);
 
             // Disable inputs if auto-adjust is enabled
             this.toggleInput('tvm-timeout', config.autoAdjustTimeout);
@@ -65,6 +66,7 @@ window.SettingsUI = class SettingsUI {
             updates.cleanGraphZeroData = this.getChecked('tvm-clean-graph-zero-data');
             updates.smoothChartLines = this.getChecked('tvm-smooth-chart-lines');
             updates.historyRetentionHours = parseInt(this.getValue('tvm-history-retention')) || 12;
+            updates.botDateRangeMonthsFromNow = parseInt(this.getValue('tvm-bot-months-from-now')) || 0;
 
             // Save settings
             await this.settings.update(updates);

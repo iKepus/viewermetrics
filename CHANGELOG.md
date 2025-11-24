@@ -2,6 +2,10 @@
 
 All notable changes to the Viewer Metrics Chrome Extension will be documented in this file.
 
+## [0.9.81] - 2025-11-24
+### Fixed
+- Quick fix to include all recent months in bot detection, as a new batch has been created
+
 ## [0.9.8] - 2025-11-23
 ### Added
 - Time tracking system for viewer heatmap analysis

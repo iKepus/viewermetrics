@@ -104,11 +104,18 @@ window.SettingsManager = class SettingsManager {
             description: 'Bot detection date range start'
         },
         botDateRangeMonthsFromNow: {
-            default: 2,
+            default: 0,
             min: 0,
             max: 12,
             type: 'number',
-            description: 'Ignore recent accounts (months from now)'
+            description: 'Ignore new accounts in past x months'
+        },
+
+        // Migration flags (internal use only)
+        _migratedBotMonths: {
+            default: false,
+            type: 'boolean',
+            description: 'Migration flag for botDateRangeMonthsFromNow'
         },
 
         // Data Management
@@ -505,6 +512,17 @@ window.SettingsManager = class SettingsManager {
                 settings.chartColors.authenticatedNonBots = settings.chartColors.authenticatedUsers;
                 delete settings.chartColors.authenticatedUsers;
             }
+        }
+
+        // Migrate botDateRangeMonthsFromNow from old default of 2 to new default of 0
+        // Only migrate if the migration hasn't been done before (tracked by flag)
+        if (settings.botDateRangeMonthsFromNow === 2 && !settings._migratedBotMonths) {
+            settings.botDateRangeMonthsFromNow = 0;
+            settings._migratedBotMonths = true;
+            console.log('Migrated botDateRangeMonthsFromNow from 2 to 0 (new default)');
+        } else if (settings.botDateRangeMonthsFromNow !== undefined && !settings._migratedBotMonths) {
+            // Mark as migrated if it has any other value (user intentionally changed it)
+            settings._migratedBotMonths = true;
         }
 
         // Add more migrations as needed
