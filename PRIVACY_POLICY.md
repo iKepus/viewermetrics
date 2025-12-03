@@ -9,9 +9,9 @@ Viewer Metrics is a browser extension designed to help Twitch streamers track an
 ## Data Collection and Use
 
 ### Authentication Information
-- **What We Collect**: The extension captures Twitch authentication tokens and OAuth headers from your browser's requests to Twitch's API.
-- **How It's Used**: These tokens are used solely to authenticate API requests to Twitch on your behalf to retrieve viewer lists and user information.
-- **Storage**: Authentication tokens are stored temporarily in your browser's session storage and are never transmitted to any third-party servers.
+- **What We Collect**: The extension does not capture or store any authentication tokens or OAuth headers.
+- **How It's Used**: The extension uses a public client ID to make API requests to Twitch. No user authentication is required or captured.
+- **Storage**: No authentication data is stored.
 
 ### Viewer Tracking Data
 - **What We Collect**: When you actively track a channel, the extension collects and stores:
@@ -35,8 +35,9 @@ Viewer Metrics is a browser extension designed to help Twitch streamers track an
 ## Data Transmission
 
 ### Twitch API Communication
-- The extension makes API requests directly to Twitch's servers (gql.twitch.tv and twitch.tv) using your authentication credentials.
+- The extension makes API requests directly to Twitch's servers (gql.twitch.tv and twitch.tv) using a public client ID.
 - These requests are necessary to retrieve viewer lists and user information.
+- No authentication tokens or user credentials are used or transmitted.
 - No data is sent to any servers controlled by Viewer Metrics or any third parties.
 
 ### No External Analytics

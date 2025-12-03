@@ -393,11 +393,11 @@ window.StatsManager = class StatsManager {
         const rateLimitStatus = this.apiClient._rateLimitStatus;
         const used = rateLimitStatus.requestCount || 0;
         const available = rateLimitStatus.available || (rateLimitStatus.maxRequests - used);
-        const max = rateLimitStatus.maxRequests || 500;
+        const max = rateLimitStatus.maxRequests || 5000;
         this.updateElement('tvm-api-calls', `${available}/${max}`);
       } else {
         // Fallback to default display
-        this.updateElement('tvm-api-calls', '0/500');
+        this.updateElement('tvm-api-calls', '0/5000');
       }
     } catch (error) {
       this.errorHandler?.handle(error, 'StatsManager Update API Calls Display');

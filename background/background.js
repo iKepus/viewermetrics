@@ -1,12 +1,10 @@
 // Background service worker for Viewer Metrics
-import { RequestInterceptor } from './request-interceptor.js';
 import { ApiManager } from './api-manager.js';
 import { calculateAutoTimeout, calculateAutoRequestInterval } from '../shared/timeout-utils.module.js';
 
 class BackgroundService {
   constructor() {
-    this.requestInterceptor = new RequestInterceptor();
-    this.apiManager = new ApiManager(this.requestInterceptor);
+    this.apiManager = new ApiManager();
     this.activeChannels = new Map(); // channelName -> { tabId, isActive }
 
     // Background tracking state
@@ -20,16 +18,6 @@ class BackgroundService {
     chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       this.handleMessage(message, sender, sendResponse);
       return true; // Keep channel open for async response
-    });
-
-    // Initialize request interceptor
-    this.requestInterceptor.init();
-
-    // Listen for auth header updates
-    chrome.storage.session.onChanged.addListener((changes) => {
-      if (changes.authHeaders) {
-        this.apiManager.updateAuthHeaders(changes.authHeaders.newValue);
-      }
     });
 
   }
@@ -68,10 +56,9 @@ class BackgroundService {
           break;
 
         case 'GET_AUTH_STATUS':
-          const authHeaders = await chrome.storage.session.get('authHeaders');
           sendResponse({
             success: true,
-            hasAuth: !!authHeaders.authHeaders
+            hasAuth: true // Always true now - using simplified headers
           });
           break;
 
@@ -234,18 +221,23 @@ class BackgroundService {
       console.log(`Starting background tracking for ${channelName}`);
 
       // Initialize tracking session
+      const sessionConfig = {
+        refreshInterval: config.refreshInterval || 30000,
+        requestInterval: config.requestInterval || 5000,
+        timeoutDuration: config.timeoutDuration || 300000,
+          batchSize: config.batchSize || 20,
+          concurrentUserInfoBatches: config.concurrentUserInfoBatches || 50,
+          viewerListConcurrentCallsInitial: config.viewerListConcurrentCallsInitial || 50,
+        viewerListConcurrentCallsReduced: config.viewerListConcurrentCallsReduced || 10,
+        viewerListNewUserThresholdLow: config.viewerListNewUserThresholdLow || 0.05,
+        viewerListNewUserThresholdHigh: config.viewerListNewUserThresholdHigh || 0.10,
+        ...config
+      };
+
       const session = {
         channelName,
         tabId,
-        config: {
-          refreshInterval: config.refreshInterval || 30000,
-          requestInterval: config.requestInterval || 5000,
-          timeoutDuration: config.timeoutDuration || 300000,
-          batchSize: config.batchSize || 20,
-          concurrentUserInfoBatches: config.concurrentUserInfoBatches || 20,
-          concurrentThreshold: config.concurrentThreshold || 1000,
-          ...config
-        },
+        config: sessionConfig,
         intervals: new Map(),
         data: {
           viewers: new Map(),
@@ -256,7 +248,9 @@ class BackgroundService {
             sessionStart: Date.now(),
             errors: [],
             viewerCount: 0,
-            authenticatedCount: 0
+            authenticatedCount: 0,
+            viewerListConcurrentCalls: sessionConfig.viewerListConcurrentCallsInitial,
+            recentNewUserCounts: []
           },
           pendingUserInfo: new Set()
         },
@@ -416,7 +410,10 @@ class BackgroundService {
       session.requestLocks.viewerList = true;
 
       const { channelName } = session;
-      const viewerData = await this.apiManager.getViewerList(channelName);
+      
+      // Adaptive concurrent calls: start high, reduce once tracking stabilizes
+      const concurrentCalls = this.calculateOptimalViewerListConcurrency(session);
+      const viewerData = await this.apiManager.getViewerListParallel(channelName, concurrentCalls);
 
       if (viewerData && viewerData.viewers) {
         const timestamp = Date.now();
@@ -441,6 +438,9 @@ class BackgroundService {
             viewer.lastSeen = timestamp;
           }
         }
+
+        // Track new user discovery rate for adaptive concurrency
+        this.updateViewerListConcurrency(session, newUsers.length, viewerData.viewers.length);
 
         // Don't remove viewers immediately - let timeout system handle it
         // This prevents flickering when viewer list API has temporary issues
@@ -549,17 +549,11 @@ class BackgroundService {
       const pendingArray = Array.from(session.data.pendingUserInfo);
       const pendingCount = pendingArray.length;
 
-      // Determine if we should use concurrent processing
-      const shouldUseConcurrent = pendingCount > 1000; // Threshold for concurrent processing
-      const concurrentBatches = 5; // Capped at 5 concurrent batches
+      // Always use concurrent processing for maximum throughput
+      const concurrentBatches = 50; // Process 50 batches (1000 users) concurrently
 
-      if (shouldUseConcurrent) {
-        // Concurrent processing for large queues
-        await this.processConcurrentUserInfo(session, pendingArray, concurrentBatches);
-      } else {
-        // Sequential processing for smaller queues
-        await this.processSequentialUserInfo(session, pendingArray);
-      }
+      // Process all pending users concurrently
+      await this.processConcurrentUserInfo(session, pendingArray, concurrentBatches);
 
     } catch (error) {
       console.error('Background user info fetch error:', error);
@@ -582,84 +576,155 @@ class BackgroundService {
     }
   }
 
-  async processSequentialUserInfo(session, pendingArray) {
-    const { channelName, config } = session;
-    const batch = pendingArray.slice(0, config.batchSize);
 
-    if (batch.length === 0) {
+  async processConcurrentUserInfo(session, pendingArray, maxConcurrentBatches) {
+    const { channelName, config } = session;
+    const batchSize = config.batchSize;
+
+    // Create all batches (process all pending users)
+    const allBatches = [];
+    for (let i = 0; i < pendingArray.length; i += batchSize) {
+      const batch = pendingArray.slice(i, i + batchSize);
+      if (batch.length > 0) {
+        allBatches.push(batch);
+      }
+    }
+
+    if (allBatches.length === 0) {
       return;
     }
 
-    const userInfo = await this.apiManager.getUserInfo(channelName, batch);
+    // Process batches in chunks of maxConcurrentBatches to avoid overwhelming the system
+    const processedUsernames = new Set();
+    const allUserInfo = [];
 
-    if (userInfo && userInfo.length > 0) {
-      await this.updateViewersWithUserInfo(session, userInfo);
+    for (let chunkStart = 0; chunkStart < allBatches.length; chunkStart += maxConcurrentBatches) {
+      const batchChunk = allBatches.slice(chunkStart, chunkStart + maxConcurrentBatches);
+      
+      // Process this chunk of batches concurrently
+      const userInfoPromises = batchChunk.map(batch =>
+        this.apiManager.getUserInfo(channelName, batch)
+      );
+
+      try {
+        const results = await Promise.allSettled(userInfoPromises);
+
+        // Process results from this chunk
+        results.forEach((result, index) => {
+          const batch = batchChunk[index];
+          
+          if (result.status === 'fulfilled' && result.value && result.value.length > 0) {
+            // Success: add the user info
+            allUserInfo.push(...result.value);
+          } else {
+            // Failure: add null entries for all usernames in the failed batch
+            // This ensures users are tracked even on failure, matching old sequential behavior
+            console.warn(`User info batch failed for ${batch.length} users, adding null entries`);
+            for (const username of batch) {
+              allUserInfo.push({
+                username: username,
+                login: username,
+                displayName: username,
+                createdAt: null,
+                description: null,
+                id: null,
+                profileImageURL: null
+              });
+            }
+          }
+
+          // Track all usernames we attempted to process (successful or not)
+          batch.forEach(username => processedUsernames.add(username));
+        });
+      } catch (error) {
+        console.error('Concurrent user info processing error:', error);
+
+        // On error, add null entries for all usernames in all batches of this chunk
+        for (const batch of batchChunk) {
+          for (const username of batch) {
+            allUserInfo.push({
+              username: username,
+              login: username,
+              displayName: username,
+              createdAt: null,
+              description: null,
+              id: null,
+              profileImageURL: null
+            });
+            processedUsernames.add(username);
+          }
+        }
+      }
     }
 
-    // Remove processed batch from pending
-    for (const username of batch) {
+    // Update viewers with all collected user info
+    if (allUserInfo.length > 0) {
+      await this.updateViewersWithUserInfo(session, allUserInfo);
+    }
+
+    // Remove all processed usernames from pending (success or failure)
+    for (const username of processedUsernames) {
       session.data.pendingUserInfo.delete(username);
     }
   }
 
-  async processConcurrentUserInfo(session, pendingArray, concurrentBatches) {
-    const { channelName, config } = session;
-    const batchSize = config.batchSize;
+  calculateOptimalViewerListConcurrency(session) {
+    const { metadata } = session.data;
+    const { config } = session;
+    const currentCalls = metadata.viewerListConcurrentCalls || config.viewerListConcurrentCallsInitial;
+    const initialCalls = config.viewerListConcurrentCallsInitial || 50;
+    const reducedCalls = config.viewerListConcurrentCallsReduced || 10;
+    const thresholdLow = config.viewerListNewUserThresholdLow || 0.05;
+    const thresholdHigh = config.viewerListNewUserThresholdHigh || 0.10;
 
-    // Create multiple batches for concurrent processing
-    const batches = [];
-    for (let i = 0; i < concurrentBatches && i * batchSize < pendingArray.length; i++) {
-      const startIndex = i * batchSize;
-      const endIndex = Math.min(startIndex + batchSize, pendingArray.length);
-      const batch = pendingArray.slice(startIndex, endIndex);
-
-      if (batch.length > 0) {
-        batches.push(batch);
-      }
+    // Need at least 5 data points to make a decision
+    if (metadata.recentNewUserCounts.length < 5) {
+      return initialCalls; // Start with initial concurrency until we have enough data
     }
 
-    if (batches.length === 0) {
-      return;
+    // Calculate new user discovery rate from recent fetches
+    const recentCounts = metadata.recentNewUserCounts.slice(-10); // Last 10 fetches
+    const avgNewUsers = recentCounts.reduce((a, b) => a + b.newUsers, 0) / recentCounts.length;
+    const avgTotalViewers = recentCounts.reduce((a, b) => a + b.totalViewers, 0) / recentCounts.length;
+    const newUserRate = avgTotalViewers > 0 ? (avgNewUsers / avgTotalViewers) : 0;
+
+    // If finding < thresholdLow new users, reduce to reducedCalls
+    if (newUserRate < thresholdLow && currentCalls > reducedCalls) {
+      return reducedCalls;
     }
 
-    // Process all batches concurrently
-    const userInfoPromises = batches.map(batch =>
-      this.apiManager.getUserInfo(channelName, batch)
-    );
+    // If finding > thresholdHigh new users, increase back to initialCalls (viewer surge)
+    if (newUserRate > thresholdHigh && currentCalls < initialCalls) {
+      return initialCalls;
+    }
 
-    try {
-      const results = await Promise.allSettled(userInfoPromises);
+    // Default: use current setting
+    return currentCalls;
+  }
 
-      // Collect all successful results
-      const allUserInfo = [];
-      const processedUsernames = new Set();
+  updateViewerListConcurrency(session, newUsersCount, totalViewersCount) {
+    const { metadata } = session.data;
 
-      results.forEach((result, index) => {
-        if (result.status === 'fulfilled' && result.value && result.value.length > 0) {
-          allUserInfo.push(...result.value);
-        }
+    // Track recent new user counts (keep last 20)
+    metadata.recentNewUserCounts.push({
+      timestamp: Date.now(),
+      newUsers: newUsersCount,
+      totalViewers: totalViewersCount
+    });
 
-        // Track all usernames we attempted to process (successful or not)
-        batches[index].forEach(username => processedUsernames.add(username));
-      });
+    if (metadata.recentNewUserCounts.length > 20) {
+      metadata.recentNewUserCounts.shift();
+    }
 
-      // Update viewers with all collected user info
-      if (allUserInfo.length > 0) {
-        await this.updateViewersWithUserInfo(session, allUserInfo);
-      }
-
-      // Remove all processed usernames from pending (success or failure)
-      for (const username of processedUsernames) {
-        session.data.pendingUserInfo.delete(username);
-      }
-
-    } catch (error) {
-      console.error('Concurrent user info processing error:', error);
-
-      // Remove usernames from all batches to prevent getting stuck
-      batches.flat().forEach(username => {
-        session.data.pendingUserInfo.delete(username);
-      });
+    // Update concurrent calls based on discovery rate
+    const optimalCalls = this.calculateOptimalViewerListConcurrency(session);
+    if (optimalCalls !== metadata.viewerListConcurrentCalls) {
+      const oldCalls = metadata.viewerListConcurrentCalls;
+      metadata.viewerListConcurrentCalls = optimalCalls;
+      const newUserRate = totalViewersCount > 0 
+        ? ((newUsersCount / totalViewersCount) * 100).toFixed(1) 
+        : '0.0';
+      console.log(`Adjusting viewer list concurrency: ${oldCalls} -> ${optimalCalls} (new user rate: ${newUserRate}%)`);
     }
   }
 

@@ -41,18 +41,39 @@ window.SettingsManager = class SettingsManager {
 
         // Processing Settings
         concurrentUserInfoBatches: {
-            default: 20,
+            default: 50,
             min: 1,
-            max: 50,
+            max: 200,
             type: 'number',
             description: 'Concurrent user info batches'
         },
-        concurrentThreshold: {
-            default: 1000,
-            min: 100,
-            max: 10000,
+        viewerListConcurrentCallsInitial: {
+            default: 50,
+            min: 1,
+            max: 100,
             type: 'number',
-            description: 'Threshold for concurrent processing'
+            description: 'Initial concurrent viewer list calls (reduces when tracking stabilizes)'
+        },
+        viewerListConcurrentCallsReduced: {
+            default: 10,
+            min: 1,
+            max: 50,
+            type: 'number',
+            description: 'Reduced concurrent viewer list calls (after stabilization)'
+        },
+        viewerListNewUserThresholdLow: {
+            default: 0.05,
+            min: 0.01,
+            max: 0.50,
+            type: 'number',
+            description: 'New user threshold to reduce viewer list calls (0.05 = 5%)'
+        },
+        viewerListNewUserThresholdHigh: {
+            default: 0.10,
+            min: 0.05,
+            max: 1.00,
+            type: 'number',
+            description: 'New user threshold to increase viewer list calls (0.10 = 10%)'
         },
 
         // Feature Flags

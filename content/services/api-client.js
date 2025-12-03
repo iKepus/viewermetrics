@@ -324,7 +324,7 @@ window.BackgroundApiClient = class BackgroundTrackingClient {
     // Use cached rate limit status from background updates
     return this._rateLimitStatus || {
       available: 0,
-      maxRequests: 500,
+      maxRequests: 5000,
       resetTime: Date.now() + 60000
     };
   }

@@ -1,0 +1,12 @@
+warning: in the working copy of 'background/api-manager.js', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'background/background.js', LF will be replaced by CRLF the next time Git touches it
+ PRIVACY_POLICY.md                 |   9 [32m+[m[31m-[m
+ background/api-manager.js         | 190 [32m++++++++++++[m[31m-----------------[m
+ background/background.js          | 251 [32m++++++++++++++++++++++++[m[31m--------------[m
+ background/request-interceptor.js | 129 [31m--------------------[m
+ content/core/settings-manager.js  |  35 [32m++++[m[31m--[m
+ content/managers/stats-manager.js |   4 [32m+[m[31m-[m
+ content/services/api-client.js    |   2 [32m+[m[31m-[m
+ manifest.json                     |   2 [31m-[m
+ pages/tracking.html               |   2 [32m+[m[31m-[m
+ 9 files changed, 273 insertions(+), 351 deletions(-)

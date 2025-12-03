@@ -1,21 +1,18 @@
 // API Manager for GQL requests with rate limiting
 export class ApiManager {
-  constructor(requestInterceptor = null) {
-    this.authHeaders = null;
+  constructor() {
     this.requestQueue = [];
     this.requestCount = 0;
-    this.maxRequests = 500;
+    this.maxRequests = 5000; // API call limit per minute
     this.requestWindow = 60000; // 1 minute
     this.isProcessing = false;
     this.lastResetTime = Date.now();
-    this.requestInterceptor = requestInterceptor;
 
     // Configuration for user data fetching method
     this.useGraphQLUserBasic = true; // Default to new GraphQL method
 
     // Concurrent processing configuration
-    this.concurrentUserInfoBatches = 20; // Default to 20 concurrent requests
-    this.concurrentThreshold = 1000; // Switch to concurrent when queue > 1000
+    this.concurrentUserInfoBatches = 50; // Max concurrent requests (default, can be updated via config)
 
     // Data usage tracking
     this.dataStats = {
@@ -29,18 +26,8 @@ export class ApiManager {
   }
 
   async init() {
-    // Load auth headers from storage
-    const stored = await chrome.storage.session.get('authHeaders');
-    if (stored.authHeaders) {
-      this.authHeaders = stored.authHeaders;
-    }
-
     // Start processing queue
     this.processQueue();
-  }
-
-  updateAuthHeaders(headers) {
-    this.authHeaders = headers;
   }
 
   updateConfig(config) {
@@ -49,44 +36,14 @@ export class ApiManager {
 
     this.concurrentUserInfoBatches = config.concurrentUserInfoBatches !== undefined ?
       config.concurrentUserInfoBatches : this.concurrentUserInfoBatches;
-
-    this.concurrentThreshold = config.concurrentThreshold !== undefined ?
-      config.concurrentThreshold : this.concurrentThreshold;
   }
 
-  getTwitchHeaders(simplified = false) {
-    if (simplified) {
-      // Simplified headers for public GraphQL endpoints
-      return {
-        'Client-Id': 'kimne78kx3ncx6brgo4mv6wki5h1ko',
-        'Content-Type': 'application/json'
-      };
-    }
-
-    if (!this.authHeaders) {
-      throw new Error('Authentication headers not available yet');
-    }
-
-    const headers = {
-      'Accept': '*/*',
-      'Accept-Language': this.authHeaders['accept-language'] || 'en-US,en;q=0.9',
-      'Client-Id': this.authHeaders['client-id'] || 'kimne78kx3ncx6brgo4mv6wki5h1ko',
-      'Client-Integrity': this.authHeaders['client-integrity'],
-      'Client-Session-Id': this.authHeaders['client-session-id'],
-      'Client-Version': this.authHeaders['client-version'],
-      'Content-Type': 'text/plain;charset=UTF-8',
-      'Origin': 'https://www.twitch.tv',
-      'Referer': 'https://www.twitch.tv/',
-      'User-Agent': this.authHeaders['user-agent'] || 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/139.0.0.0 Safari/537.36',
-      'X-Device-Id': this.authHeaders['x-device-id']
+  getTwitchHeaders() {
+    // Simplified headers using alternate client ID
+    return {
+      'Client-Id': 'kd1unb4b3q4t58fwlpcbzcbnm76a8fp',
+      'Content-Type': 'application/json'
     };
-
-    // Only include Authorization header if it was captured
-    if (this.authHeaders['authorization']) {
-      headers['Authorization'] = this.authHeaders['authorization'];
-    }
-
-    return headers;
   }
 
   async makeRequest(url, options, priority = 2) {
@@ -117,44 +74,19 @@ export class ApiManager {
 
     this.isProcessing = true;
 
-    // Check if we should use concurrent processing
-    const queueLength = this.requestQueue.length;
-    const shouldUseConcurrent = queueLength > this.concurrentThreshold;
-
-    if (shouldUseConcurrent) {
-      await this.processConcurrentRequests();
-    } else {
-      await this.processSequentialRequests();
-    }
+    // Always use concurrent processing
+    await this.processConcurrentRequests();
 
     this.isProcessing = false;
-  }
-
-  async processSequentialRequests() {
-    while (this.requestQueue.length > 0) {
-      // Check if we need to reset the rate limit counter
-      const now = Date.now();
-      if (now - this.lastResetTime >= this.requestWindow) {
-        this.requestCount = 0;
-        this.lastResetTime = now;
-      }
-
-      // Check if we've hit the rate limit
-      if (this.requestCount >= this.maxRequests) {
-        console.warn('Rate limit reached, waiting...');
-        await new Promise(resolve => setTimeout(resolve, 1000));
-        continue;
-      }
-
-      const request = this.requestQueue.shift();
-      await this.executeRequest(request);
-
-      // Small delay between requests
-      await new Promise(resolve => setTimeout(resolve, 100));
+    
+    // Auto-restart processing if queue has new items
+    if (this.requestQueue.length > 0) {
+      this.processQueue();
     }
   }
 
   async processConcurrentRequests() {
+    // Process requests concurrently (up to concurrentUserInfoBatches at a time)
     console.log(`Queue has ${this.requestQueue.length} requests, using concurrent processing with ${this.concurrentUserInfoBatches} concurrent batches`);
 
     while (this.requestQueue.length > 0) {
@@ -193,9 +125,8 @@ export class ApiManager {
 
       // Execute requests concurrently
       await this.executeConcurrentRequests(concurrentRequests);
-
-      // Delay between concurrent batches
-      await new Promise(resolve => setTimeout(resolve, 200));
+      
+      // No delay - process next batch immediately to maximize throughput
     }
   }
 
@@ -211,11 +142,6 @@ export class ApiManager {
 
   async executeRequest(request) {
     try {
-      // Register this request with the interceptor to ignore it
-      if (this.requestInterceptor) {
-        this.requestInterceptor.registerOurRequest();
-      }
-
       // Calculate bytes sent (approximate)
       const bytesSent = this.calculateRequestSize(request.url, request.options);
 
@@ -309,7 +235,8 @@ export class ApiManager {
           ...(data.broadcasters || []),
           ...(data.moderators || []),
           ...(data.vips || []),
-          ...(data.viewers || [])
+          ...(data.viewers || []),
+          ...(data.chatbots || [])
         ];
 
         for (const viewer of allViewers) {
@@ -320,8 +247,39 @@ export class ApiManager {
       return { viewers, totalAuthenticatedCount };
     } catch (error) {
       console.error('Error fetching viewer list:', error);
-      return [];
+      return { viewers: [], totalAuthenticatedCount: 0 };
     }
+  }
+
+  async getViewerListParallel(channelName, concurrentCalls = 50) {
+    // Make multiple concurrent calls to getViewerList and combine unique results
+    const promises = [];
+    for (let i = 0; i < concurrentCalls; i++) {
+      promises.push(this.getViewerList(channelName));
+    }
+
+    const results = await Promise.allSettled(promises);
+
+    // Combine unique viewers from all successful calls
+    const allViewersSet = new Set();
+    let maxAuthenticatedCount = 0;
+
+    for (const result of results) {
+      if (result.status === 'fulfilled' && result.value) {
+        const { viewers, totalAuthenticatedCount } = result.value;
+        if (Array.isArray(viewers)) {
+          viewers.forEach(viewer => allViewersSet.add(viewer));
+        }
+        if (totalAuthenticatedCount > maxAuthenticatedCount) {
+          maxAuthenticatedCount = totalAuthenticatedCount;
+        }
+      }
+    }
+
+    return {
+      viewers: Array.from(allViewersSet),
+      totalAuthenticatedCount: maxAuthenticatedCount
+    };
   }
 
   async getUserInfo(channelLogin, usernames, priority = 3) {
@@ -333,8 +291,8 @@ export class ApiManager {
   }
 
   async getUserInfoGraphQL(usernames, extraFields = [], priority = 3) {
-    // New GraphQL method using GetUserBasic operation
-    // Batch requests - up to 20 users per request
+    // GraphQL method using GetUserBasic operation
+    // Batch requests - up to 20 users per request (GraphQL API limit)
     const batchSize = 20;
     const batches = [];
     // Always include profile image, then add any extra fields
@@ -348,19 +306,22 @@ export class ApiManager {
 
     const allUserInfo = [];
 
-    for (const batch of batches) {
+    // Process batches concurrently using Promise.allSettled
+    const batchPromises = batches.map(async (batch) => {
       const payload = batch.map(username => ({
         "operationName": "GetUserBasic",
         "variables": { "login": username },
         "query": `query GetUserBasic($login: String!) { user(login: $login) { id login displayName createdAt description${extraFieldsString} } }`
       }));
 
+      const batchUserInfo = [];
+
       try {
         const response = await this.makeRequest(
           'https://gql.twitch.tv/gql',
           {
             method: 'POST',
-            headers: this.getTwitchHeaders(true), // Use simplified headers
+            headers: this.getTwitchHeaders(),
             body: JSON.stringify(payload)
           },
           priority // Use the passed priority instead of hardcoded 3
@@ -397,7 +358,7 @@ export class ApiManager {
               }
             });
 
-            allUserInfo.push(userInfoObj);
+            batchUserInfo.push(userInfoObj);
           } else if (requestedUsername) {
             // User not found or failed to load - still add to results with null data
             const userInfoObj = {
@@ -422,7 +383,7 @@ export class ApiManager {
               userInfoObj[actualFieldName] = null;
             });
 
-            allUserInfo.push(userInfoObj);
+            batchUserInfo.push(userInfoObj);
           }
         }
       } catch (error) {
@@ -448,8 +409,18 @@ export class ApiManager {
             userInfoObj[actualFieldName] = null;
           });
 
-          allUserInfo.push(userInfoObj);
+          batchUserInfo.push(userInfoObj);
         }
+      }
+
+      return batchUserInfo;
+    });
+
+    // Wait for all batches to complete and combine results
+    const results = await Promise.allSettled(batchPromises);
+    for (const result of results) {
+      if (result.status === 'fulfilled' && Array.isArray(result.value)) {
+        allUserInfo.push(...result.value);
       }
     }
 
@@ -473,7 +444,7 @@ export class ApiManager {
   async getUserFollowingBatched(usernames, options = {}, priority = 3) {
     // Batched approach for single page requests (more efficient)
     const { limit = 100 } = options;
-    const batchSize = 20; // GraphQL batch limit
+    const batchSize = 20; // GraphQL API limit per batch
     const batches = [];
 
     for (let i = 0; i < usernames.length; i += batchSize) {
@@ -497,7 +468,7 @@ export class ApiManager {
           'https://gql.twitch.tv/gql',
           {
             method: 'POST',
-            headers: this.getTwitchHeaders(true), // Use simplified headers for batch requests
+            headers: this.getTwitchHeaders(),
             body: JSON.stringify(payload)
           },
           priority // Use the passed priority instead of hardcoded 3
@@ -599,7 +570,7 @@ export class ApiManager {
             'https://gql.twitch.tv/gql',
             {
               method: 'POST',
-              headers: this.getTwitchHeaders(!getAllPages), // Use simplified headers if not getting all pages
+              headers: this.getTwitchHeaders(),
               body: JSON.stringify(payload)
             },
             priority // Use the passed priority instead of hardcoded 3
@@ -756,14 +727,9 @@ export class ApiManager {
     }));
 
     try {
-      // Register this request with the interceptor to ignore it
-      if (this.requestInterceptor) {
-        this.requestInterceptor.registerOurRequest();
-      }
-
       const response = await fetch('https://gql.twitch.tv/gql', {
         method: 'POST',
-        headers: this.getTwitchHeaders(true), // Use simplified headers
+        headers: this.getTwitchHeaders(),
         body: JSON.stringify(payload)
       });
 
@@ -840,8 +806,8 @@ export class ApiManager {
   }
 
   async getUserInfoViewerCard(channelLogin, usernames, priority = 3) {
-    // Original ViewerCard method
-    // Batch requests - up to 20 users per request
+    // ViewerCard method (fallback when GraphQL is disabled)
+    // Batch requests - up to 20 users per request (GraphQL API limit)
     const batchSize = 20;
     const batches = [];
 
