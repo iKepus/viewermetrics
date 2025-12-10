@@ -865,6 +865,18 @@ window.EnhancedDataManager = class DataManager {
     this.state.metadata.accountsInBotRange = Math.round(result.totalAccounts);
     this.state.metadata.maxExpectedPostStartAccounts = Math.ceil(maxExpected);
     this.state.metadata.averagePreStartAccounts = Math.ceil(averagePreStart);
+
+    const allViewersWithDates = Array.from(this.state.viewers.values()).filter(v => v.createdAt);
+    this.state.metadata.accountsWithDates = allViewersWithDates.length;
+
+    // Calculate accounts from 2020 onwards for percentage display
+    const startRange = new Date('2020-01-01');
+    this.state.metadata.accountsFrom2020 = allViewersWithDates.filter(v => {
+      const createdDate = new Date(v.createdAt);
+      return createdDate >= startRange;
+    }).length;
+    this.state.metadata.accountsFrom2020WithoutBots = this.state.metadata.accountsFrom2020 - Math.round(result.totalBots);
+
   }
 
   // Time Tracking for Heatmap - Update current time in stream
@@ -1066,7 +1078,9 @@ window.EnhancedDataManager = class DataManager {
         maxExpectedPostStartAccounts: this.state.metadata.maxExpectedPostStartAccounts || 0,
         averagePreStartAccounts: this.state.metadata.averagePreStartAccounts || 0,
         usersFound: this.state.viewers.size || 0,
-        accountsWithDates: Array.from(this.state.viewers.values()).filter(v => v.createdAt).length || 0
+        accountsWithDates: Array.from(this.state.viewers.values()).filter(v => v.createdAt).length || 0,
+        accountsFrom2020: this.state.metadata.accountsFrom2020 || 0,
+        accountsFrom2020WithoutBots: this.state.metadata.accountsFrom2020WithoutBots || 0
       });
 
       // Limit history size
@@ -1310,6 +1324,16 @@ window.EnhancedDataManager = class DataManager {
             if (!a.createdAt) return 1;
             if (!b.createdAt) return -1;
             return new Date(a.createdAt) - new Date(b.createdAt);
+          case 'accountsOnSameDay':
+            // Sort by same day count, descending (highest first), then by username ascending
+            const aCount = a.accountsOnSameDay || 0;
+            const bCount = b.accountsOnSameDay || 0;
+            // Primary sort: by count descending
+            if (aCount !== bCount) {
+              return bCount - aCount;
+            }
+            // Secondary sort: by username ascending
+            return a.username.localeCompare(b.username);
           case 'timeInStream':
           default:
             // Handle null/undefined firstSeen values
@@ -1319,7 +1343,7 @@ window.EnhancedDataManager = class DataManager {
         }
       });
 
-      // Add computed properties
+      // Add computed properties (spread operator preserves all existing properties including accountsOnSameDay)
       viewers = viewers.map(viewer => ({
         ...viewer,
         timeInStream: viewer.firstSeen ? now - viewer.firstSeen : 0,
@@ -1366,6 +1390,79 @@ window.EnhancedDataManager = class DataManager {
       this.errorHandler?.handle(error, 'DataManager Get Viewer List',
         { page, pageSize, searchTerm, sortBy });
       return { viewers: [], currentPage: 1, totalPages: 0, totalUsersFound: 0, hasNextPage: false, hasPrevPage: false };
+    }
+  }
+
+  // Get top botted months with counts (descending)
+  getTopBottedMonths(limit = 10) {
+    try {
+      const monthCounts = new Map();
+
+      // Count accounts per month
+      for (const viewer of this.state.viewers.values()) {
+        if (!viewer.createdAt) continue;
+
+        const date = new Date(viewer.createdAt);
+        const monthKey = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`;
+        monthCounts.set(monthKey, (monthCounts.get(monthKey) || 0) + 1);
+      }
+
+      // Convert to array and sort by count descending, then by date descending (newest first)
+      const sortedMonths = Array.from(monthCounts.entries())
+        .map(([monthKey, count]) => {
+          const [year, month] = monthKey.split('-');
+          const date = new Date(parseInt(year), parseInt(month) - 1, 1);
+          const monthName = date.toLocaleDateString('en-US', { month: 'short', year: 'numeric' });
+          return { monthKey, monthName, count, date };
+        })
+        .sort((a, b) => {
+          // Primary sort: by count descending
+          if (b.count !== a.count) return b.count - a.count;
+          // Secondary sort: by date descending (newest first)
+          return b.date - a.date;
+        })
+        .slice(0, limit);
+
+      return sortedMonths;
+    } catch (error) {
+      this.errorHandler?.handle(error, 'DataManager Get Top Botted Months');
+      return [];
+    }
+  }
+
+  // Get top same-day account counts (descending)
+  getTopSameDayCounts(limit = 25) {
+    try {
+      const dayCounts = new Map();
+
+      // Count accounts per day
+      for (const viewer of this.state.viewers.values()) {
+        if (!viewer.createdAt) continue;
+
+        const date = new Date(viewer.createdAt);
+        const dayKey = date.toISOString().split('T')[0]; // YYYY-MM-DD format
+        dayCounts.set(dayKey, (dayCounts.get(dayKey) || 0) + 1);
+      }
+
+      // Convert to array and sort by count descending, then by date descending (newest first)
+      const sortedDays = Array.from(dayCounts.entries())
+        .map(([dayKey, count]) => {
+          const date = new Date(dayKey);
+          const dayName = date.toLocaleDateString('en-US', { day: 'numeric', month: 'short', year: 'numeric' });
+          return { dayKey, dayName, count, date };
+        })
+        .sort((a, b) => {
+          // Primary sort: by count descending
+          if (b.count !== a.count) return b.count - a.count;
+          // Secondary sort: by date descending (newest first)
+          return b.date - a.date;
+        })
+        .slice(0, limit);
+
+      return sortedDays;
+    } catch (error) {
+      this.errorHandler?.handle(error, 'DataManager Get Top Same Day Counts');
+      return [];
     }
   }
 

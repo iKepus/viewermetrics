@@ -72,6 +72,9 @@ window.ViewerListManager = class ViewerListManager {
       // Update both pagination controls
       this.updatePagination(result, pagination, paginationTop);
 
+      // Update bot stats panels
+      this.updateBotStatsPanels();
+
     } catch (error) {
       this.errorHandler?.handle(error, 'ViewerListManager Update Viewer List');
     }
@@ -289,9 +292,134 @@ window.ViewerListManager = class ViewerListManager {
   resetUI() {
     try {
       this.currentPage = 1;
+      this.clearBotStatsPanels();
       this.forceViewerListUpdate();
     } catch (error) {
       this.errorHandler?.handle(error, 'ViewerListManager Reset UI');
+    }
+  }
+
+  clearBotStatsPanels() {
+    try {
+      const monthsContainer = document.getElementById('tvm-top-months-list');
+      const daysContainer = document.getElementById('tvm-top-days-list');
+
+      if (monthsContainer) {
+        monthsContainer.innerHTML = '<p class="tvm-empty">No data available</p>';
+      }
+
+      if (daysContainer) {
+        daysContainer.innerHTML = '<p class="tvm-empty">No data available</p>';
+      }
+    } catch (error) {
+      this.errorHandler?.handle(error, 'ViewerListManager Clear Bot Stats Panels');
+    }
+  }
+
+  updateBotStatsPanels() {
+    try {
+      this.updateTopBottedMonths();
+      this.updateTopSameDayCounts();
+    } catch (error) {
+      this.errorHandler?.handle(error, 'ViewerListManager Update Bot Stats Panels');
+    }
+  }
+
+  updateTopBottedMonths() {
+    try {
+      const container = document.getElementById('tvm-top-months-list');
+      if (!container) return;
+
+      const topMonths = this.dataManager.getTopBottedMonths(10);
+
+      if (topMonths.length === 0) {
+        container.innerHTML = '<p class="tvm-empty">No data available</p>';
+        return;
+      }
+
+      const dateFilter = document.getElementById('tvm-date-filter')?.value || 'all';
+
+      // Calculate the cutoff date (1 month from now based on BOT_DATE_RANGE_MONTHS_FROM_NOW)
+      const now = new Date();
+      const cutoffDate = new Date(now.getFullYear(), now.getMonth() - 1, 1); // 1 month ago
+
+      container.innerHTML = topMonths.map(month => {
+        const isActive = dateFilter === month.monthKey ? ' active' : '';
+        const [year, monthNum] = month.monthKey.split('-').map(Number);
+        const monthDate = new Date(year, monthNum - 1, 1);
+        const isDisabled = (year < 2020 || monthDate > cutoffDate) ? ' disabled' : '';
+        return `
+          <div class="tvm-bot-item${isActive}${isDisabled}" data-month="${month.monthKey}" data-disabled="${year < 2020 || monthDate > cutoffDate}">
+            <span class="tvm-bot-item-label">${month.monthName}</span>
+            <span class="tvm-bot-item-count">${month.count}</span>
+          </div>
+        `;
+      }).join('');
+
+      // Add scrollable class to top months list
+      container.classList.add('scrollable');
+
+      // Add click handlers
+      container.querySelectorAll('.tvm-bot-item').forEach(item => {
+        item.addEventListener('click', () => {
+          const isDisabled = item.getAttribute('data-disabled') === 'true';
+          if (isDisabled) return; // Don't allow clicking on months before 2020 or after cutoff date
+
+          const monthKey = item.getAttribute('data-month');
+          this.setDateFilter(monthKey);
+        });
+      });
+    } catch (error) {
+      this.errorHandler?.handle(error, 'ViewerListManager Update Top Botted Months');
+    }
+  }
+
+  updateTopSameDayCounts() {
+    try {
+      const container = document.getElementById('tvm-top-days-list');
+      if (!container) return;
+
+      const topDays = this.dataManager.getTopSameDayCounts(25);
+
+      if (topDays.length === 0) {
+        container.innerHTML = '<p class="tvm-empty">No data available</p>';
+        return;
+      }
+
+      const dateFilter = document.getElementById('tvm-date-filter')?.value || 'all';
+
+      // Calculate the cutoff date (1 month from now based on BOT_DATE_RANGE_MONTHS_FROM_NOW)
+      const now = new Date();
+      const cutoffDate = new Date(now.getFullYear(), now.getMonth() - 1, 1); // 1 month ago
+
+      container.innerHTML = topDays.map((day, index) => {
+        // Extract year from dayKey (YYYY-MM-DD format)
+        const [year, month, dayNum] = day.dayKey.split('-').map(Number);
+        const monthKey = `${year}-${String(month).padStart(2, '0')}`;
+        const dayDate = new Date(year, month - 1, dayNum);
+        const isDisabled = (year < 2020 || dayDate > cutoffDate) ? ' disabled' : '';
+        const isActive = dateFilter === monthKey ? ' active' : '';
+
+        return `
+          <div class="tvm-bot-item${isDisabled}${isActive}" data-month="${monthKey}" data-disabled="${year < 2020 || dayDate > cutoffDate}">
+            <span class="tvm-bot-item-label">${day.dayName}</span>
+            <span class="tvm-bot-item-count">${day.count}</span>
+          </div>
+        `;
+      }).join('');
+
+      // Add click handlers
+      container.querySelectorAll('.tvm-bot-item').forEach(item => {
+        item.addEventListener('click', () => {
+          const isDisabled = item.getAttribute('data-disabled') === 'true';
+          if (isDisabled) return; // Don't allow clicking on days before 2020 or after cutoff date
+
+          const monthKey = item.getAttribute('data-month');
+          this.setDateFilter(monthKey);
+        });
+      });
+    } catch (error) {
+      this.errorHandler?.handle(error, 'ViewerListManager Update Top Same Day Counts');
     }
   }
 }

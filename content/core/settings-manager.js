@@ -113,13 +113,6 @@ window.SettingsManager = class SettingsManager {
             description: 'Clean zero data from graph start'
         },
 
-        // Bot Detection Settings
-        botPreDateRangeStart: {
-            default: '2018-01-01',
-            type: 'date',
-            description: 'Bot pre-detection date range start'
-        },
-
         // Data Management
         maxHistoryPoints: {
             default: 360,

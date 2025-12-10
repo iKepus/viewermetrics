@@ -186,7 +186,7 @@ window.MainChart = class MainChart {
             callback: function (value, index, values) {
               // Format ticks to show UTC time
               const date = new Date(value);
-              return date.toLocaleTimeString('en-US', {
+              return date.toLocaleTimeString('en-GB', {
                 hour: '2-digit',
                 minute: '2-digit',
                 timeZone: 'UTC',
@@ -359,7 +359,7 @@ window.MainChart = class MainChart {
 
     // Build tooltip content from the original history point
     const date = new Date(closestPoint.timestamp);
-    const timeStr = date.toLocaleTimeString([], {
+    const timeStr = date.toLocaleTimeString('en-GB', {
       hour: '2-digit',
       minute: '2-digit',
       second: '2-digit',
@@ -440,9 +440,15 @@ window.MainChart = class MainChart {
 
     let history = this.dataManager.getHistory();
 
+    // If skip is 0 and we have more than 2 history points, set it to 1
+    let skipValue = this.skipEntries;
+    if (skipValue === 0 && history.length > 2) {
+      skipValue = 1;
+    }
+
     // Skip initial entries based on skipEntries setting
     // Cap at history.length - 1 to always show at least one point
-    const actualSkip = Math.min(this.skipEntries, Math.max(0, history.length - 1));
+    const actualSkip = Math.min(skipValue, Math.max(0, history.length - 1));
     if (actualSkip > 0) {
       history = history.slice(actualSkip);
     }

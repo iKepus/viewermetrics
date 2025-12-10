@@ -124,7 +124,9 @@
                                     <div class="tvm-graph-container">
                                         <canvas id="tvm-creation-graph"></canvas>
                                         <div class="tvm-creation-left" id="tvm-creation-title">@viewermetrics</div>
-                                        <div class="tvm-creation-stats" id="tvm-creation-stats" style="display: none;">
+                                        <div class="tvm-creation-stats" id="tvm-creation-stats">
+                                            <span id="tvm-creation-percentage">0%</span> <span
+                                                id="tvm-creation-percentage-label">2020+</span>
                                         </div>
                                         <div class="tvm-bot-threshold-control" id="tvm-bot-threshold-control">
                                             <div class="tvm-bot-threshold-label">Bot Threshold</div>
@@ -190,36 +192,59 @@
 
                             <!-- Viewers Tab -->
                             <div id="tvm-tab-viewers" class="tvm-tab-panel">
-                                <div class="tvm-viewer-list" style="margin-top: 20px;">
-                                    <div class="tvm-pagination tvm-pagination-top" id="tvm-pagination-top"
-                                        style="display: none; margin-bottom: 10px;">
-                                        <button id="tvm-prev-top" class="tvm-btn tvm-btn-small">Previous</button>
-                                        <span id="tvm-page-info-top">Page 1 of 1</span>
-                                        <button id="tvm-next-top" class="tvm-btn tvm-btn-small">Next</button>
+                                <div class="tvm-viewers-container" style="display: flex; gap: 15px; margin-top: 20px;">
+                                    <div class="tvm-viewer-list" style="flex: 1; margin-top: 0;">
+                                        <div class="tvm-pagination tvm-pagination-top" id="tvm-pagination-top"
+                                            style="display: none; margin-bottom: 10px;">
+                                            <button id="tvm-prev-top" class="tvm-btn tvm-btn-small">Previous</button>
+                                            <span id="tvm-page-info-top">Page 1 of 1</span>
+                                            <button id="tvm-next-top" class="tvm-btn tvm-btn-small">Next</button>
+                                        </div>
+
+                                        <div class="tvm-list-header">
+                                            <input type="text" id="tvm-search" placeholder="Search viewers..."
+                                                class="tvm-search">
+                                            <select id="tvm-sort" class="tvm-select">
+                                                <option value="timeInStream">Sort by Time</option>
+                                                <option value="username">Sort by Username</option>
+                                                <option value="createdAt">Sort by Created Date</option>
+                                                <option value="accountsOnSameDay">Sort by Same Day Count</option>
+                                            </select>
+                                            <select id="tvm-date-filter" class="tvm-select">
+                                                <option value="all">All Dates</option>
+                                            </select>
+                                        </div>
+
+                                        <div class="tvm-list-content" id="tvm-list-content"
+                                            style="max-height: none; overflow: visible;">
+                                            <p class="tvm-empty">No viewers tracked yet</p>
+                                        </div>
+
+                                        <div class="tvm-pagination" id="tvm-pagination" style="display: none;">
+                                            <button id="tvm-prev" class="tvm-btn tvm-btn-small">Previous</button>
+                                            <span id="tvm-page-info">Page 1 of 1</span>
+                                            <button id="tvm-next" class="tvm-btn tvm-btn-small">Next</button>
+                                        </div>
                                     </div>
 
-                                    <div class="tvm-list-header">
-                                        <input type="text" id="tvm-search" placeholder="Search viewers..."
-                                            class="tvm-search">
-                                        <select id="tvm-sort" class="tvm-select">
-                                            <option value="timeInStream">Sort by Time</option>
-                                            <option value="username">Sort by Username</option>
-                                            <option value="createdAt">Sort by Created Date</option>
-                                        </select>
-                                        <select id="tvm-date-filter" class="tvm-select">
-                                            <option value="all">All Dates</option>
-                                        </select>
-                                    </div>
+                                    <!-- Bot Stats Panels -->
+                                    <div class="tvm-bot-stats-panels"
+                                        style="width: 280px; display: flex; flex-direction: column; gap: 15px;">
+                                        <!-- Top 10 Months Panel -->
+                                        <div class="tvm-bot-panel">
+                                            <h3 class="tvm-bot-panel-title">Top 10 Months</h3>
+                                            <div id="tvm-top-months-list" class="tvm-bot-list">
+                                                <p class="tvm-empty">No data available</p>
+                                            </div>
+                                        </div>
 
-                                    <div class="tvm-list-content" id="tvm-list-content"
-                                        style="max-height: none; overflow: visible;">
-                                        <p class="tvm-empty">No viewers tracked yet</p>
-                                    </div>
-
-                                    <div class="tvm-pagination" id="tvm-pagination" style="display: none;">
-                                        <button id="tvm-prev" class="tvm-btn tvm-btn-small">Previous</button>
-                                        <span id="tvm-page-info">Page 1 of 1</span>
-                                        <button id="tvm-next" class="tvm-btn tvm-btn-small">Next</button>
+                                        <!-- Top 25 Same Day Counts Panel -->
+                                        <div class="tvm-bot-panel">
+                                            <h3 class="tvm-bot-panel-title">Top 25 Same Day Counts</h3>
+                                            <div id="tvm-top-days-list" class="tvm-bot-list">
+                                                <p class="tvm-empty">No data available</p>
+                                            </div>
+                                        </div>
                                     </div>
                                 </div>
                             </div>
@@ -348,18 +373,19 @@
                                                     ID,
                                                     creation date, first seen, last seen, and time in stream.
                                                 </div>
-                                                <div style="display: flex; flex-direction: column; gap: 10px;">
+                                                <div
+                                                    style="display: flex; gap: 10px; flex-wrap: wrap; justify-content: center;">
                                                     <button id="tvm-export-csv" class="tvm-btn tvm-btn-primary">
-                                                        Export as CSV
+                                                        CSV
                                                     </button>
                                                     <button id="tvm-export-xml" class="tvm-btn tvm-btn-primary">
-                                                        Export as XML
+                                                        XML
                                                     </button>
                                                     <button id="tvm-export-sql" class="tvm-btn tvm-btn-primary">
-                                                        Export as SQL
+                                                        SQL
                                                     </button>
                                                     <button id="tvm-export-json" class="tvm-btn tvm-btn-primary">
-                                                        Export as JSON
+                                                        JSON
                                                     </button>
                                                 </div>
                                             </div>
@@ -375,18 +401,19 @@
                                                     viewers, total authenticated, authenticated users (non-bots), and
                                                     authenticated bots.
                                                 </div>
-                                                <div style="display: flex; flex-direction: column; gap: 10px;">
+                                                <div
+                                                    style="display: flex; gap: 10px; flex-wrap: wrap; justify-content: center;">
                                                     <button id="tvm-export-graph-csv" class="tvm-btn tvm-btn-primary">
-                                                        Export as CSV
+                                                        CSV
                                                     </button>
                                                     <button id="tvm-export-graph-xml" class="tvm-btn tvm-btn-primary">
-                                                        Export as XML
+                                                        XML
                                                     </button>
                                                     <button id="tvm-export-graph-sql" class="tvm-btn tvm-btn-primary">
-                                                        Export as SQL
+                                                        SQL
                                                     </button>
                                                     <button id="tvm-export-graph-json" class="tvm-btn tvm-btn-primary">
-                                                        Export as JSON
+                                                        JSON
                                                     </button>
                                                 </div>
                                             </div>
@@ -401,7 +428,8 @@
                                                     Save complete session for later analysis or load a previously saved
                                                     session. Import stops tracking and enters read-only analysis mode.
                                                 </div>
-                                                <div style="display: flex; flex-direction: column; gap: 10px;">
+                                                <div
+                                                    style="display: flex; gap: 10px; flex-wrap: wrap; justify-content: center;">
                                                     <button id="tvm-export-full-state" class="tvm-btn tvm-btn-primary">
                                                         Save Session
                                                     </button>

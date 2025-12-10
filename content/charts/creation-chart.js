@@ -356,9 +356,52 @@ window.CreationChart = class CreationChart {
           titleElement.textContent = `Per Month Before ${averagePreStartAccounts} • Expected After ${maxExpectedPostStartAccounts} • ${accountsInBotRange} accounts`;
         }
       }
+
+      // Update percentage display
+      this.updatePercentageDisplay(metadata);
+
       this.chart.update('none');
     } catch (error) {
       this.errorHandler?.handle(error, 'CreationChart Update Y-Axis Title');
+    }
+  }
+
+  updatePercentageDisplay(metadata) {
+    try {
+      const percentageElement = document.getElementById('tvm-creation-percentage');
+      const labelElement = document.getElementById('tvm-creation-percentage-label');
+      const statsContainer = document.getElementById('tvm-creation-stats');
+
+      if (!percentageElement || !labelElement || !statsContainer) return;
+
+      // Get total authenticated accounts with dates
+      const accountsWithDates = metadata.accountsWithDates || 0;
+      const botsDetected = metadata.botsDetected || 0;
+      // Get accounts in 2018-2024 range
+      const accountsFrom2020 = metadata.accountsFrom2020 || 0;
+      const accountsFrom2020WithoutBots = metadata.accountsFrom2020WithoutBots || 0;
+
+      // Only show if more than 100 accounts
+      if (accountsWithDates <= 100) {
+        statsContainer.style.display = 'none';
+        return;
+      }
+
+      statsContainer.style.display = 'flex';
+
+      // Calculate percentage of accounts in 2018-2024 vs total
+      const percentage = Math.round((accountsFrom2020 / accountsWithDates) * 100);
+      const percentageWithoutBots = Math.round((accountsFrom2020WithoutBots / (accountsWithDates - botsDetected)) * 100);
+      if (percentage !== percentageWithoutBots) {
+        percentageElement.textContent = `${percentage}% (${percentageWithoutBots}%)`;
+      } else {
+        percentageElement.textContent = `${percentage}%`;
+      }
+
+      labelElement.textContent = '2020+';
+
+    } catch (error) {
+      this.errorHandler?.handle(error, 'CreationChart Update Percentage Display');
     }
   }
 
@@ -368,6 +411,11 @@ window.CreationChart = class CreationChart {
       this.chart.data.datasets[1].data = [];
       this.chart.data.labels = [];
       this.chart.update('none');
+      // Set stas to hidden
+      const statsContainer = document.getElementById('tvm-creation-stats');
+      if (statsContainer) {
+        statsContainer.style.display = 'none';
+      }
     }
 
     // Remove tooltip
