@@ -3,9 +3,10 @@ class ViewerDetailManager {
     static PANEL_ANIMATION_DURATION = 300;
 
     constructor(dataManager, apiClient, errorHandler) {
-        // Validate singleton
+        // Return existing instance if it exists
         if (ViewerDetailManager.instance) {
-            throw new Error('ViewerDetailManager: Only one instance is allowed. Use ViewerDetailManager.instance or call destroy() first.');
+            console.warn('ViewerDetailManager: Returning existing instance');
+            return ViewerDetailManager.instance;
         }
 
         this.dataManager = dataManager;
@@ -25,7 +26,11 @@ class ViewerDetailManager {
             throw new Error('ViewerDetailManager: Required panel elements not found in DOM');
         }
 
-        this._handlersSetup = false;
+        // Bind event handlers once
+        this.handlePanelClick = this.handlePanelClick.bind(this);
+        this.handlePanelInput = this.handlePanelInput.bind(this);
+        this.handlePanelChange = this.handlePanelChange.bind(this);
+
         this.setupPanelEventListeners();
 
         // Set singleton instance
@@ -33,50 +38,60 @@ class ViewerDetailManager {
     }
 
     setupPanelEventListeners() {
-        if (this._handlersSetup) {
+        // Remove any existing listeners first
+        this.panelElement.removeEventListener('click', this.handlePanelClick);
+        this.panelElement.removeEventListener('input', this.handlePanelInput);
+        this.panelElement.removeEventListener('change', this.handlePanelChange);
+
+        // Add listeners using bound methods
+        this.panelElement.addEventListener('click', this.handlePanelClick);
+        this.panelElement.addEventListener('input', this.handlePanelInput);
+        this.panelElement.addEventListener('change', this.handlePanelChange);
+    }
+
+    async handlePanelClick(e) {
+        // Close button
+        if (e.target.classList.contains('tvm-panel-close')) {
+            this.hideViewerPanel();
             return;
         }
 
-        // Close button handler
-        this.panelElement.addEventListener('click', (e) => {
-            if (e.target.classList.contains('tvm-panel-close')) {
-                this.hideViewerPanel();
+        // Load full list button
+        if (e.target.id === 'tvm-load-full-following') {
+            await this.handleLoadFullList();
+            return;
+        }
+
+        // Suspicious debug toggle
+        if (e.target.closest('#tvm-suspicious-debug-toggle')) {
+            const debugPanel = document.getElementById('tvm-suspicious-debug');
+            if (debugPanel) {
+                debugPanel.style.display = debugPanel.style.display === 'none' ? 'block' : 'none';
             }
-        });
+            return;
+        }
 
         // Following item click handler
-        this.panelElement.addEventListener('click', (e) => {
-            const item = e.target.closest('.tvm-following-item[data-login]');
-            if (item) {
-                const login = item.getAttribute('data-login');
-                if (login) {
-                    window.open(`https://www.twitch.tv/${login}`, '_blank');
-                }
+        const item = e.target.closest('.tvm-following-item[data-login]');
+        if (item) {
+            const login = item.getAttribute('data-login');
+            if (login) {
+                window.open(`https://www.twitch.tv/${login}`, '_blank');
             }
-        });
+            return;
+        }
+    }
 
-        // Search input handler
-        this.panelElement.addEventListener('input', (e) => {
-            if (e.target.id === 'tvm-following-search') {
-                this.updateFollowingDisplay();
-            }
-        });
+    handlePanelInput(e) {
+        if (e.target.id === 'tvm-following-search') {
+            this.updateFollowingDisplay();
+        }
+    }
 
-        // Sort select handler
-        this.panelElement.addEventListener('change', (e) => {
-            if (e.target.id === 'tvm-following-sort') {
-                this.updateFollowingDisplay();
-            }
-        });
-
-        // Load full list button handler
-        this.panelElement.addEventListener('click', async (e) => {
-            if (e.target.id === 'tvm-load-full-following') {
-                await this.handleLoadFullList();
-            }
-        });
-
-        this._handlersSetup = true;
+    handlePanelChange(e) {
+        if (e.target.id === 'tvm-following-sort') {
+            this.updateFollowingDisplay();
+        }
     }
 
     async showViewerPanel(username) {
@@ -279,12 +294,17 @@ class ViewerDetailManager {
     }
 
     cleanupPanelHandlers() {
-        // Event listeners are on the persistent panel element, no cleanup needed
-        // This method exists for potential future use
+        // Remove all event listeners
+        if (this.panelElement) {
+            this.panelElement.removeEventListener('click', this.handlePanelClick);
+            this.panelElement.removeEventListener('input', this.handlePanelInput);
+            this.panelElement.removeEventListener('change', this.handlePanelChange);
+        }
     }
 
     destroy() {
         this.hideViewerPanel();
+        this.cleanupPanelHandlers();
         this.currentViewer = null;
         this.currentUserInfo = null;
         this.currentFollowing = null;
