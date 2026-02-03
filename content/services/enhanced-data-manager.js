@@ -46,6 +46,9 @@ window.EnhancedDataManager = class DataManager {
     this.heatmapEnabled = true; // Heatmap tracking enabled by default
     this.isAnalysisMode = false; // Analysis mode for viewing imported historical data
     this.analysisMetadata = null; // Store metadata about imported session
+    this.botList = new Set();
+    this.botListLoaded = false;
+    this.botListPromise = this.loadBotList();
 
     // Time tracking data for heatmap (persists even after viewer removal)
     // Structure: Map<username, { createdAt, currentTimeInStream, pastTimeInStream }>
@@ -63,6 +66,69 @@ window.EnhancedDataManager = class DataManager {
         }
       });
     }
+  }
+
+  async loadBotList() {
+    try {
+      const runtime = window.chrome?.runtime;
+      const url = runtime?.getURL ? runtime.getURL('assets/db-bots.csv') : 'assets/db-bots.csv';
+      const response = await fetch(url);
+      if (!response.ok) {
+        throw new Error(`Failed to load bot CSV: ${response.status}`);
+      }
+      const text = await response.text();
+      this.botList = this.parseBotCsv(text);
+      this.botListLoaded = true;
+      this.refreshBotsDetectedFromCsv();
+    } catch (error) {
+      this.botListLoaded = false;
+      this.errorHandler?.handle(error, 'DataManager Load Bot CSV');
+    }
+  }
+
+  parseBotCsv(csvText) {
+    const rows = csvText.split(/\r?\n/).filter(line => line.trim().length > 0);
+    if (rows.length === 0) {
+      return new Set();
+    }
+
+    const firstRow = rows[0].split(',').map(cell => cell.trim().toLowerCase());
+    const hasHeader = firstRow.includes('nickname');
+    const nicknameIndex = hasHeader ? firstRow.indexOf('nickname') : 0;
+    const isBotIndex = hasHeader ? firstRow.indexOf('is_bot') : -1;
+    const startIndex = hasHeader ? 1 : 0;
+    const bots = new Set();
+
+    for (let i = startIndex; i < rows.length; i++) {
+      const columns = rows[i].split(',').map(cell => cell.trim());
+      const nickname = columns[nicknameIndex];
+      if (!nickname) {
+        continue;
+      }
+      if (isBotIndex !== -1) {
+        const isBotValue = columns[isBotIndex];
+        if (!isBotValue || isBotValue.trim() !== '1') {
+          continue;
+        }
+      }
+      bots.add(nickname.toLowerCase());
+    }
+
+    return bots;
+  }
+
+  refreshBotsDetectedFromCsv() {
+    if (!this.botListLoaded) {
+      return;
+    }
+    let matchedBots = 0;
+    for (const username of this.state.viewers.keys()) {
+      if (this.botList.has(username)) {
+        matchedBots++;
+      }
+    }
+    this.state.metadata.botsDetected = matchedBots;
+    this.notify('botsDetected', matchedBots);
   }
 
   initCleanupInterval() {
@@ -308,6 +374,7 @@ window.EnhancedDataManager = class DataManager {
 
       if (updated) {
         this.state.metadata.lastUpdated = now;
+        this.refreshBotsDetectedFromCsv();
 
         if (newUsers.length > 0) {
           this.notify('newViewers', newUsers);
@@ -344,6 +411,7 @@ window.EnhancedDataManager = class DataManager {
 
       if (wasRemoved) {
         this.state.metadata.lastUpdated = Date.now();
+        this.refreshBotsDetectedFromCsv();
         this.notify('viewersUpdated', {
           total: this.state.viewers.size,
           removed: [cleanUsername]
@@ -423,6 +491,7 @@ window.EnhancedDataManager = class DataManager {
       const newViewerCount = this.state.viewers.size;
 
       // Notify observers of the sync
+      this.refreshBotsDetectedFromCsv();
       this.notify('viewersSynced', {
         oldCount: oldViewerCount,
         newCount: newViewerCount,
@@ -475,6 +544,7 @@ window.EnhancedDataManager = class DataManager {
       if (data.authenticatedCount !== undefined) {
         this.state.metadata.authenticatedCount = data.authenticatedCount;
       }
+      this.refreshBotsDetectedFromCsv();
 
       // Notify observers
       this.notify('viewersUpdated', {
@@ -656,8 +726,9 @@ window.EnhancedDataManager = class DataManager {
 
       // Step 7: Store results in state
       this.storeBotDetectionResults(result, maxExpectedAccounts, baselineStats.averagePreStartAccounts);
-
-      if (result.totalBots > 0) {
+      if (this.botListLoaded) {
+        this.refreshBotsDetectedFromCsv();
+      } else if (result.totalBots > 0) {
         this.notify('botsDetected', Math.round(result.totalBots));
       }
 
